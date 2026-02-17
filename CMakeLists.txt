@@ -117,7 +117,7 @@ endif(GIT_FOUND)
 project(
   "QUDA"
   VERSION 1.1.0
-  LANGUAGES)
+  LANGUAGES C CXX)
 
 # Print the configuration details to stdout
 message(STATUS "")
