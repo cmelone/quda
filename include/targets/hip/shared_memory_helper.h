@@ -87,6 +87,14 @@ namespace quda
     }
 
     /**
+       @brief Constructor for SharedMemory object.
+    */
+    template <typename... U, typename... Arg>
+    constexpr SharedMemory(const KernelOps<U...> &, const Arg &...) : data(cache(get_offset(target::block_dim())))
+    {
+    }
+
+    /**
        @brief Return this SharedMemory object.
     */
     constexpr auto sharedMem() const { return *this; }
