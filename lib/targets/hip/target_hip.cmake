@@ -117,10 +117,13 @@ target_compile_options(
           -Wextra
           -Wno-unknown-pragmas
           -Wno-unused-result
+                    $<$<COMPILE_LANGUAGE:HIP>:-fno-hip-new-launch-api>
           $<$<CONFIG:STRICT>:-Werror
           -Wno-error=pass-failed>
           $<$<CONFIG:SANITIZE>:-fsanitize=address
           -fsanitize=undefined>)
+
+target_compile_options(quda_cpp PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-fno-hip-new-launch-api>)
 
 if(QUDA_FLUSH_DENORMALS)
   message(FATAL_ERROR "QUDA_FLUSH_DENORMALS is not supported on this target")
