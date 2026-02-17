@@ -80,6 +80,11 @@ if(QUDA_DIRAC_WILSON
 
   add_executable(invert_test invert_test.cpp)
   target_link_libraries(invert_test ${TEST_LIBS})
+  if(${QUDA_TARGET_TYPE} STREQUAL "HIP")
+    target_link_libraries(invert_test PRIVATE hip::host hip::device)
+    target_compile_definitions(invert_test PRIVATE MNEME_ENABLE_HIP)
+    add_mneme(invert_test)
+  endif()
   quda_checkbuildtest(invert_test QUDA_BUILD_ALL_TESTS)
   install(TARGETS invert_test ${QUDA_EXCLUDE_FROM_INSTALL} DESTINATION ${CMAKE_INSTALL_BINDIR})
 

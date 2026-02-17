@@ -411,6 +411,11 @@ if(QUDA_OPENMP)
   find_package(OpenMP REQUIRED)
 endif()
 
+if(${QUDA_TARGET_TYPE} STREQUAL "HIP")
+  find_package(HIP REQUIRED)
+  find_package(mneme REQUIRED)
+endif()
+
 # ######################################################################################################################
 # Handle dependencies
 # ######################################################################################################################
