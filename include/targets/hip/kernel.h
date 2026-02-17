@@ -110,12 +110,14 @@ namespace quda
     Kernel3D_impl<Functor, Arg, grid_stride>(arg);
   }
 
+  // CNM: KERNEL LAUNCH OF INTEREST FOR COARSE DSLASH
   template <template <typename> class Functor, typename Arg, bool grid_stride = false>
   __global__ std::enable_if_t<!device::use_kernel_arg<Arg>(), void>
     __launch_bounds__(device::get_default_kernel3D_launch_bounds<Arg>()) Kernel3D()
   {
     Kernel3D_impl<Functor, Arg, grid_stride>(device::get_arg<Arg>());
   }
+  // END KERNAL LAUNCH
 
   template <template <typename> class Functor, typename Arg, bool grid_stride = false>
   __launch_bounds__(Arg::block_dim, Arg::min_blocks) __global__ void raw_kernel(Arg arg)
