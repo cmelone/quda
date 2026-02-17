@@ -460,6 +460,12 @@ if(${QUDA_TARGET_TYPE} STREQUAL "SYCL")
   include(targets/sycl/target_sycl.cmake)
 endif()
 
+if(${QUDA_TARGET_TYPE} STREQUAL "HIP")
+  target_compile_definitions(quda_cpp PRIVATE MNEME_ENABLE_HIP)
+  target_compile_definitions(quda PRIVATE MNEME_ENABLE_HIP)
+  add_mneme(quda)
+endif()
+
 # order variables will be set in the target file
 set(VALID_ORDER_DOUBLE_VALUES "0" "2" "4")
 set(VALID_ORDER_SINGLE_VALUES "0" "2" "4" "8")

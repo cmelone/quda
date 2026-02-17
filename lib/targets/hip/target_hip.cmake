@@ -13,8 +13,8 @@ endif()
 
 set(QUDA_GPU_ARCH
     ${QUDA_DEFAULT_GPU_ARCH}
-    CACHE STRING "set the GPU architecture (gfx906 gfx908 gfx90a)")
-set_property(CACHE QUDA_GPU_ARCH PROPERTY STRINGS gfx906 gfx908 gfx90a)
+    CACHE STRING "set the GPU architecture (gfx906 gfx908 gfx90a gfx942)")
+set_property(CACHE QUDA_GPU_ARCH PROPERTY STRINGS gfx906 gfx908 gfx90a gfx942)
 
 set(CMAKE_HIP_ARCHITECTURES "${QUDA_GPU_ARCH}")
 set(GPU_TARGETS "${QUDA_GPU_ARCH}")

@@ -119,6 +119,10 @@ project(
   VERSION 1.1.0
   LANGUAGES C CXX)
 
+if(${QUDA_TARGET_TYPE} STREQUAL "HIP")
+  enable_language(HIP)
+endif()
+
 # Print the configuration details to stdout
 message(STATUS "")
 message(STATUS "${PROJECT_NAME} ${PROJECT_VERSION} (${GITVERSION}) **")
