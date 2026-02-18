@@ -117,11 +117,7 @@ endif(GIT_FOUND)
 project(
   "QUDA"
   VERSION 1.1.0
-  LANGUAGES C CXX)
-
-if(${QUDA_TARGET_TYPE} STREQUAL "HIP")
-  enable_language(HIP)
-endif()
+  LANGUAGES)
 
 # Print the configuration details to stdout
 message(STATUS "")
@@ -413,11 +409,6 @@ if(QUDA_OPENMP)
     message(FATAL_ERROR "Host compiler (nvc++) not supported with QUDA_OPENMP=ON")
   endif()
   find_package(OpenMP REQUIRED)
-endif()
-
-if(${QUDA_TARGET_TYPE} STREQUAL "HIP")
-  find_package(HIP REQUIRED)
-  find_package(mneme REQUIRED)
 endif()
 
 # ######################################################################################################################

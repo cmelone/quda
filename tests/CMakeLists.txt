@@ -79,12 +79,7 @@ if(QUDA_DIRAC_WILSON
   install(TARGETS dslash_test dslash_ctest ${QUDA_EXCLUDE_FROM_INSTALL} DESTINATION ${CMAKE_INSTALL_BINDIR})
 
   add_executable(invert_test invert_test.cpp)
-  target_link_libraries(invert_test PRIVATE ${TEST_LIBS})
-
-  if(${QUDA_TARGET_TYPE} STREQUAL "HIP")
-    add_mneme(invert_test)
-    target_compile_definitions(invert_test PRIVATE MNEME_ENABLE_HIP)
-  endif()
+  target_link_libraries(invert_test ${TEST_LIBS})
   quda_checkbuildtest(invert_test QUDA_BUILD_ALL_TESTS)
   install(TARGETS invert_test ${QUDA_EXCLUDE_FROM_INSTALL} DESTINATION ${CMAKE_INSTALL_BINDIR})
 
