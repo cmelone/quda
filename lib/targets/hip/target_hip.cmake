@@ -13,8 +13,8 @@ endif()
 
 set(QUDA_GPU_ARCH
     ${QUDA_DEFAULT_GPU_ARCH}
-    CACHE STRING "set the GPU architecture (gfx906 gfx908 gfx90a gfx942)")
-set_property(CACHE QUDA_GPU_ARCH PROPERTY STRINGS gfx906 gfx908 gfx90a gfx942)
+    CACHE STRING "set the GPU architecture (gfx906 gfx908 gfx90a)")
+set_property(CACHE QUDA_GPU_ARCH PROPERTY STRINGS gfx906 gfx908 gfx90a)
 
 set(CMAKE_HIP_ARCHITECTURES "${QUDA_GPU_ARCH}")
 set(GPU_TARGETS "${QUDA_GPU_ARCH}")
@@ -117,13 +117,10 @@ target_compile_options(
           -Wextra
           -Wno-unknown-pragmas
           -Wno-unused-result
-                    $<$<COMPILE_LANGUAGE:HIP>:-fno-hip-new-launch-api>
           $<$<CONFIG:STRICT>:-Werror
           -Wno-error=pass-failed>
           $<$<CONFIG:SANITIZE>:-fsanitize=address
           -fsanitize=undefined>)
-
-target_compile_options(quda_cpp PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-fno-hip-new-launch-api>)
 
 if(QUDA_FLUSH_DENORMALS)
   message(FATAL_ERROR "QUDA_FLUSH_DENORMALS is not supported on this target")
