@@ -1094,11 +1094,13 @@ namespace quda {
             if constexpr (enable_coarse_shmem_overlap) enable_policy(DslashCoarsePolicy::DSLASH_COARSE_SHMEM_OVERLAP);
           }
           if (comm_gdr_enabled()) {
-            enable_policy(DslashCoarsePolicy::DSLASH_COARSE_GDR_SEND);
-            enable_policy(DslashCoarsePolicy::DSLASH_COARSE_GDR_RECV);
-            enable_policy(DslashCoarsePolicy::DSLASH_COARSE_GDR);
-            enable_policy(DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY_PACK_GDR_RECV);
-            enable_policy(DslashCoarsePolicy::DSLASH_COARSE_GDR_SEND_ZERO_COPY_READ);
+            // DEBUG: All GDR policies disabled - cause GPU memory fault after repeated use
+            printfQuda("PolicyTune: GDR enabled but all GDR policies DISABLED (cause GPU fault)\n");
+            // enable_policy(DslashCoarsePolicy::DSLASH_COARSE_GDR_SEND);
+            // enable_policy(DslashCoarsePolicy::DSLASH_COARSE_GDR_RECV);
+            // enable_policy(DslashCoarsePolicy::DSLASH_COARSE_GDR);
+            // enable_policy(DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY_PACK_GDR_RECV);
+            // enable_policy(DslashCoarsePolicy::DSLASH_COARSE_GDR_SEND_ZERO_COPY_READ);
           }
         }
 
@@ -1155,20 +1157,54 @@ namespace quda {
 
    virtual ~DslashCoarsePolicyTune() { setPolicyTuning(false); }
 
+   // Helper to get policy name for debugging
+   static const char* getPolicyName(DslashCoarsePolicy p) {
+     switch(p) {
+       case DslashCoarsePolicy::DSLASH_COARSE_BASIC: return "BASIC";
+       case DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY_PACK: return "ZERO_COPY_PACK";
+       case DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY_READ: return "ZERO_COPY_READ";
+       case DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY: return "ZERO_COPY";
+       case DslashCoarsePolicy::DSLASH_COARSE_SHMEM: return "SHMEM";
+       case DslashCoarsePolicy::DSLASH_COARSE_SHMEM_OVERLAP: return "SHMEM_OVERLAP";
+       case DslashCoarsePolicy::DSLASH_COARSE_GDR_SEND: return "GDR_SEND";
+       case DslashCoarsePolicy::DSLASH_COARSE_GDR_RECV: return "GDR_RECV";
+       case DslashCoarsePolicy::DSLASH_COARSE_GDR: return "GDR";
+       case DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY_PACK_GDR_RECV: return "ZERO_COPY_PACK_GDR_RECV";
+       case DslashCoarsePolicy::DSLASH_COARSE_GDR_SEND_ZERO_COPY_READ: return "GDR_SEND_ZERO_COPY_READ";
+       case DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED: return "DISABLED";
+       default: return "UNKNOWN";
+     }
+   }
+
    inline void apply(const qudaStream_t &)
    {
      TuneParam tp = tuneLaunch(*this, getTuning(), getVerbosity());
 
      if (tp.aux.x >= (int)policies.size()) errorQuda("Requested policy that is outside of range");
      if (policies[tp.aux.x] == DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED ) errorQuda("Requested policy is disabled");
+
+     // DEBUG: Print which policy we're executing
+     int policy_idx = static_cast<int>(policies[tp.aux.x]);
+     printfQuda("PolicyTune: Executing policy %d = %s\n", policy_idx, getPolicyName(policies[tp.aux.x]));
+     fflush(stdout);
+
      dslash(policies[tp.aux.x]);
+
+     printfQuda("PolicyTune: Successfully completed policy %d = %s\n", policy_idx, getPolicyName(policies[tp.aux.x]));
+     fflush(stdout);
    }
 
    bool advanceAux(TuneParam &param) const
    {
     while ((unsigned)param.aux.x < policies.size()-1) {
       param.aux.x++;
-      if (policies[param.aux.x] != DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED) return true;
+      if (policies[param.aux.x] != DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED) {
+        // DEBUG: Print which policy we're about to test
+        int policy_idx = static_cast<int>(policies[param.aux.x]);
+        printfQuda("PolicyTune: Advancing to policy %d = %s\n", policy_idx, getPolicyName(policies[param.aux.x]));
+        fflush(stdout);
+        return true;
+      }
     }
     param.aux.x = 0;
     return false;
