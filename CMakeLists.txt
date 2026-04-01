@@ -167,6 +167,7 @@ option(QUDA_ARPACK_LOGGING "enable ARPACK logging (not available for NG)" OFF)
 option(QUDA_OPENBLAS "enable OpenBLAS" OFF)
 
 option(QUDA_MNEME "enable mneme" OFF)
+option(QUDA_MNEME_ANNOTATIONS "enable Mneme annotations for verification (requires QUDA_MNEME)" OFF)
 
 option(QUDA_QCD_PLUS_QED "Enable QCD+QED features (builds QUDA_RECONSTRUCT_9/13 instead of 8/12 for Wilson-type operators)" OFF)
 

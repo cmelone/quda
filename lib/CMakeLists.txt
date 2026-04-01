@@ -464,6 +464,11 @@ if(QUDA_MNEME)
   find_package(mneme REQUIRED)
   target_compile_definitions(quda PRIVATE MNEME_ENABLE_HIP)
   add_mneme(quda)
+
+  if(QUDA_MNEME_ANNOTATIONS)
+    target_compile_definitions(quda PRIVATE QUDA_MNEME_ANNOTATIONS)
+    message(STATUS "QUDA: Mneme annotations enabled for verification")
+  endif()
 endif()
 
 # order variables will be set in the target file

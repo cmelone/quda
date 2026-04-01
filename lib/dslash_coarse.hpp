@@ -9,6 +9,9 @@
 #include <dslash_shmem.h>
 #include <multigrid.h>
 
+#ifdef QUDA_MNEME_ANNOTATIONS
+#include "mneme/MnemeAnnotation.hpp"
+#endif
 
 // BEGIN COPY FROM dslash_coarse.cuh
 namespace quda {
@@ -652,6 +655,66 @@ namespace quda {
         errorQuda("Not enabled");
       } else {
         checkNative(out[0], inA[0], inB[0], Y, X);
+
+#ifdef QUDA_MNEME_ANNOTATIONS
+        // ============================================
+        // MNEME ANNOTATIONS - Applied Before CoarseKernel3D Launch
+        // ============================================
+
+        // Annotate input spinor fields (should match closely as inputs)
+        for (auto i = 0u; i < inA.size(); i++) {
+          if (inA[i].data()) {
+            mneme::annotate<Float>(static_cast<Float*>(inA[i].data()), mneme::Metadata{
+                .threshold      = 1e-7,
+                .threshold_kind = mneme::ThresholdKind::Absolute,
+                .norm           = mneme::Norm::L2,
+                .tag            = "CoarseKernel3D.inA.rhs" + std::to_string(i),
+            });
+          }
+
+          if (inB[i].data()) {
+            mneme::annotate<Float>(static_cast<Float*>(inB[i].data()), mneme::Metadata{
+                .threshold      = 1e-7,
+                .threshold_kind = mneme::ThresholdKind::Absolute,
+                .norm           = mneme::Norm::L2,
+                .tag            = "CoarseKernel3D.inB.rhs" + std::to_string(i),
+            });
+          }
+        }
+
+        // Annotate coarse gauge field Y (should be exact)
+        if (Y.data()) {
+          mneme::annotate<yFloat>(static_cast<yFloat*>(Y.data()), mneme::Metadata{
+              .threshold      = 1e-7,
+              .threshold_kind = mneme::ThresholdKind::Absolute,
+              .norm           = mneme::Norm::Linf,
+              .tag            = "CoarseKernel3D.gauge_Y",
+          });
+        }
+
+        // Annotate coarse clover field X (should be exact)
+        if (X.data()) {
+          mneme::annotate<yFloat>(static_cast<yFloat*>(X.data()), mneme::Metadata{
+              .threshold      = 1e-7,
+              .threshold_kind = mneme::ThresholdKind::Absolute,
+              .norm           = mneme::Norm::Linf,
+              .tag            = "CoarseKernel3D.clover_X",
+          });
+        }
+
+        // Annotate output spinor fields (looser tolerance for accumulated results)
+        for (auto i = 0u; i < out.size(); i++) {
+          if (out[i].data()) {
+            mneme::annotate<Float>(static_cast<Float*>(out[i].data()), mneme::Metadata{
+                .threshold      = 1e-6,
+                .threshold_kind = mneme::ThresholdKind::Absolute,
+                .norm           = mneme::Norm::L2,
+                .tag            = "CoarseKernel3D.output.rhs" + std::to_string(i),
+            });
+          }
+        }
+#endif // QUDA_MNEME_ANNOTATIONS
+
         launch_coarse(tp, stream);
       }
     }
