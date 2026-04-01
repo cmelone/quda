@@ -1049,6 +1049,25 @@ namespace quda {
 
     static void enable_policy(DslashCoarsePolicy p) { policies[static_cast<std::size_t>(p)] = p; }
 
+    // Helper to get policy name for debugging
+    static const char* getPolicyName(DslashCoarsePolicy p) {
+      switch(p) {
+        case DslashCoarsePolicy::DSLASH_COARSE_BASIC: return "BASIC";
+        case DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY_PACK: return "ZERO_COPY_PACK";
+        case DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY_READ: return "ZERO_COPY_READ";
+        case DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY: return "ZERO_COPY";
+        case DslashCoarsePolicy::DSLASH_COARSE_SHMEM: return "SHMEM";
+        case DslashCoarsePolicy::DSLASH_COARSE_SHMEM_OVERLAP: return "SHMEM_OVERLAP";
+        case DslashCoarsePolicy::DSLASH_COARSE_GDR_SEND: return "GDR_SEND";
+        case DslashCoarsePolicy::DSLASH_COARSE_GDR_RECV: return "GDR_RECV";
+        case DslashCoarsePolicy::DSLASH_COARSE_GDR: return "GDR";
+        case DslashCoarsePolicy::DSLASH_COARSE_ZERO_COPY_PACK_GDR_RECV: return "ZERO_COPY_PACK_GDR_RECV";
+        case DslashCoarsePolicy::DSLASH_COARSE_GDR_SEND_ZERO_COPY_READ: return "GDR_SEND_ZERO_COPY_READ";
+        case DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED: return "DISABLED";
+        default: return "UNKNOWN";
+      }
+    }
+
    Launch &dslash;
 
    bool tuneGridDim() const { return false; } // Don't tune the grid dimensions.
@@ -1102,10 +1121,42 @@ namespace quda {
           }
         }
 
+        // Runtime blacklist: disable specific policies via environment variable
+        // Usage: export QUDA_DISABLE_DSLASH_COARSE_POLICY="6,7,8,9,10"  # Disable all GDR
+        //        export QUDA_DISABLE_DSLASH_COARSE_POLICY="6,7,8"       # Disable GDR_SEND, GDR_RECV, GDR only
+        static char *disable_policy_env = getenv("QUDA_DISABLE_DSLASH_COARSE_POLICY");
+        if (disable_policy_env) {
+          std::stringstream disable_list(disable_policy_env);
+          int policy_;
+          if (getVerbosity() >= QUDA_VERBOSE) {
+            printfQuda("PolicyTune: Disabling policies from QUDA_DISABLE_DSLASH_COARSE_POLICY=%s\n", disable_policy_env);
+          }
+          while (disable_list >> policy_) {
+            if (policy_ >= 0 && policy_ < static_cast<int>(DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED)) {
+              policies[policy_] = DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED;
+              if (getVerbosity() >= QUDA_VERBOSE) {
+                printfQuda("  - Disabled policy %d = %s\n",
+                          policy_, getPolicyName(static_cast<DslashCoarsePolicy>(policy_)));
+              }
+            }
+            if (disable_list.peek() == ',') disable_list.ignore();
+          }
+        }
+
         // construct string specifying which policies have been enabled
         strcat(policy_string, ",pol=");
         for (int i = 0; i < (int)DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED; i++) {
           strcat(policy_string, (int)policies[i] == i ? "1" : "0");
+        }
+
+        // Print summary of enabled policies
+        if (getVerbosity() >= QUDA_VERBOSE) {
+          printfQuda("PolicyTune: Enabled policies for DslashCoarse:\n");
+          for (int i = 0; i < (int)DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED; i++) {
+            if ((int)policies[i] == i) {
+              printfQuda("  [%d] %s\n", i, getPolicyName(static_cast<DslashCoarsePolicy>(i)));
+            }
+          }
         }
 
         dslash_init = true;
@@ -1161,14 +1212,36 @@ namespace quda {
 
      if (tp.aux.x >= (int)policies.size()) errorQuda("Requested policy that is outside of range");
      if (policies[tp.aux.x] == DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED ) errorQuda("Requested policy is disabled");
+
+     // DEBUG: Print which policy we're executing
+     if (getVerbosity() >= QUDA_DEBUG_VERBOSE) {
+       int policy_idx = static_cast<int>(policies[tp.aux.x]);
+       printfQuda("PolicyTune: Executing policy %d = %s\n", policy_idx, getPolicyName(policies[tp.aux.x]));
+       fflush(stdout);
+     }
+
      dslash(policies[tp.aux.x]);
+
+     if (getVerbosity() >= QUDA_DEBUG_VERBOSE) {
+       int policy_idx = static_cast<int>(policies[tp.aux.x]);
+       printfQuda("PolicyTune: Successfully completed policy %d = %s\n", policy_idx, getPolicyName(policies[tp.aux.x]));
+       fflush(stdout);
+     }
    }
 
    bool advanceAux(TuneParam &param) const
    {
     while ((unsigned)param.aux.x < policies.size()-1) {
       param.aux.x++;
-      if (policies[param.aux.x] != DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED) return true;
+      if (policies[param.aux.x] != DslashCoarsePolicy::DSLASH_COARSE_POLICY_DISABLED) {
+        // DEBUG: Print which policy we're about to test
+        if (getVerbosity() >= QUDA_DEBUG_VERBOSE) {
+          int policy_idx = static_cast<int>(policies[param.aux.x]);
+          printfQuda("PolicyTune: Advancing to policy %d = %s\n", policy_idx, getPolicyName(policies[param.aux.x]));
+          fflush(stdout);
+        }
+        return true;
+      }
     }
     param.aux.x = 0;
     return false;
