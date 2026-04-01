@@ -13,6 +13,46 @@
 #include "mneme/MnemeAnnotation.hpp"
 #endif
 
+// ============================================================================
+// LOCAL Complex Multiply-Accumulate (cmac_local) for dslash_coarse
+// ============================================================================
+// This is a self-contained copy of cmac from complex_quda.h, renamed to
+// cmac_local to avoid conflicts and keep dslash_coarse self-contained.
+//
+// cmac_local(x, y, z) = x * y + z   (for complex numbers)
+// ============================================================================
+namespace quda {
+
+  // Optimized version using fused multiply-add (FMA)
+  template <typename real>
+  __host__ __device__ inline complex<real> cmac_local(const complex<real> &x, const complex<real> &y, const complex<real> &z)
+  {
+    complex<real> w = fma2({x.real(), x.real()}, y, z);
+    return fma2({x.imag(), x.imag()}, {-y.imag(), y.real()}, w);
+  }
+
+  // Generic version for different types
+  template <typename T1, typename T2, typename T3>
+  __host__ __device__ inline auto cmac_local(const T1 &x, const T2 &y, const T3 &z)
+  {
+    static_assert(std::is_same<typename T1::value_type, typename T2::value_type>::value
+                    && std::is_same<typename T1::value_type, typename T3::value_type>::value,
+                  "precisions do not match");
+
+    using real = typename T1::value_type;
+    complex<real> X = x;
+    complex<real> Y = y;
+    complex<real> Z = z;
+    Z.real(Z.real() + X.real() * Y.real());  // z_r += x_r * y_r
+    Z.real(Z.real() - X.imag() * Y.imag());  // z_r -= x_i * y_i
+    Z.imag(Z.imag() + X.imag() * Y.real());  // z_i += x_i * y_r
+    Z.imag(Z.imag() + X.real() * Y.imag());  // z_i += x_r * y_i
+    return Z;
+  }
+
+} // namespace quda
+// ============================================================================
+
 // BEGIN COPY FROM dslash_coarse.cuh
 namespace quda {
 
@@ -129,10 +169,10 @@ namespace quda {
                   int col = s_col * Arg::nColor + c_col + color_offset;
                   if (!Arg::dagger)
                     out[color_local]
-                      = cmac(arg.Y(d + 4, parity, x_cb, row, col), arg.halo.Ghost(d, 1, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col, c_col + color_offset), out[color_local]);
+                      = cmac_local(arg.Y(d + 4, parity, x_cb, row, col), arg.halo.Ghost(d, 1, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col, c_col + color_offset), out[color_local]);
                   else
                     out[color_local]
-                      = cmac(arg.Y(d, parity, x_cb, row, col),
+                      = cmac_local(arg.Y(d, parity, x_cb, row, col),
                              arg.halo.Ghost(d, 1, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col, c_col + color_offset), out[color_local]);
                 }
               }
@@ -150,12 +190,12 @@ namespace quda {
                 int col = s_col * Arg::nColor + c_col + color_offset;
                 if (!Arg::dagger)
                   out[color_local]
-                    = cmac(arg.Y(d + 4, parity, x_cb, row, col),
+                    = cmac_local(arg.Y(d + 4, parity, x_cb, row, col),
                            arg.inA[src_idx](their_spinor_parity, fwd_idx, s_col, c_col + color_offset),
                            out[color_local]);
                 else
                   out[color_local]
-                    = cmac(arg.Y(d, parity, x_cb, row, col),
+                    = cmac_local(arg.Y(d, parity, x_cb, row, col),
                            arg.inA[src_idx](their_spinor_parity, fwd_idx, s_col, c_col + color_offset),
                            out[color_local]);
               }
@@ -188,13 +228,13 @@ namespace quda {
                   int col = s_col * Arg::nColor + c_col + color_offset;
                   if (!Arg::dagger)
                     out[color_local]
-                      = cmac(conj(arg.Y.Ghost(d, 1 - parity, ghost_idx, col, row)),
+                      = cmac_local(conj(arg.Y.Ghost(d, 1 - parity, ghost_idx, col, row)),
                              arg.halo.Ghost(d, 0, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col,
                                             c_col + color_offset),
                              out[color_local]);
                   else
                     out[color_local]
-                      = cmac(conj(arg.Y.Ghost(d + 4, 1 - parity, ghost_idx, col, row)),
+                      = cmac_local(conj(arg.Y.Ghost(d + 4, 1 - parity, ghost_idx, col, row)),
                              arg.halo.Ghost(d, 0, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col,
                                             c_col + color_offset),
                              out[color_local]);
@@ -214,12 +254,12 @@ namespace quda {
                 int col = s_col * Arg::nColor + c_col + color_offset;
                 if (!Arg::dagger)
                   out[color_local]
-                    = cmac(conj(arg.Y(d, 1 - parity, gauge_idx, col, row)),
+                    = cmac_local(conj(arg.Y(d, 1 - parity, gauge_idx, col, row)),
                            arg.inA[src_idx](their_spinor_parity, back_idx, s_col, c_col + color_offset),
                            out[color_local]);
                 else
                   out[color_local]
-                    = cmac(conj(arg.Y(d + 4, 1 - parity, gauge_idx, col, row)),
+                    = cmac_local(conj(arg.Y(d + 4, 1 - parity, gauge_idx, col, row)),
                            arg.inA[src_idx](their_spinor_parity, back_idx, s_col, c_col + color_offset),
                            out[color_local]);
               }
@@ -258,10 +298,10 @@ namespace quda {
           int col = s_col * Arg::nColor + c_col + color_offset;
           if (!Arg::dagger) {
             out[color_local]
-              = cmac(arg.X(0, parity, x_cb, row, col), arg.inB[src_idx](spinor_parity, x_cb, s_col, c_col + color_offset),
+              = cmac_local(arg.X(0, parity, x_cb, row, col), arg.inB[src_idx](spinor_parity, x_cb, s_col, c_col + color_offset),
                      out[color_local]);
           } else {
-            out[color_local] = cmac(conj(arg.X(0, parity, x_cb, col, row)),
+            out[color_local] = cmac_local(conj(arg.X(0, parity, x_cb, col, row)),
                                     arg.inB[src_idx](spinor_parity, x_cb, s_col, c_col + color_offset), out[color_local]);
           }
         }
