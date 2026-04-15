@@ -141,6 +141,10 @@ namespace quda {
   __device__ __host__ inline void applyDslash(V &out, int thread_dim, int thread_dir, int x_cb, int src_idx, int parity, int s_row, int color_block, int color_offset, const Arg &arg)
   {
     const int their_spinor_parity = (arg.nParity == 2) ? 1-parity : 0;
+    const auto &Y = arg.Y;
+    const auto &halo = arg.halo;
+    const auto &inA = arg.inA[src_idx];
+    const int row_base = s_row * Arg::nColor + color_block;
 
     int coord[4];
     getCoordsCB(coord, x_cb, arg.dim, arg.X0h, parity);
@@ -148,54 +152,49 @@ namespace quda {
     if (!thread_dir || target::is_host()) {
 
       //Forward gather - compute fwd offset for spinor fetch
-#pragma unroll
       for(int d0 = 0; d0 < Arg::nDim; d0 += Arg::dim_stride) { // loop over dimension
-        int d = d0 + thread_dim;
-	const int fwd_idx = linkIndexHop(coord, arg.dim, d, arg.nFace);
+        const int d = d0 + thread_dim;
+        const int gauge_dir = d + (Arg::dagger ? 0 : 4);
 
-	if (arg.commDim[d] && is_boundary(coord, d, 1, arg) ) {
-	  if constexpr (doHalo<Arg::type>()) {
-            int ghost_idx = ghostFaceIndex<1>(coord, arg.dim, d, arg.nFace);
+        if (arg.commDim[d] && is_boundary(coord, d, 1, arg) ) {
+          if constexpr (doHalo<Arg::type>()) {
+            const int ghost_idx = ghostFaceIndex<1>(coord, arg.dim, d, arg.nFace);
+            const int halo_idx = ghost_idx + src_idx * arg.ghostFaceCB[d];
 
 #pragma unroll
-	    for(int color_local = 0; color_local < Mc; color_local++) { //Color row
-	      int c_row = color_block + color_local; // global color index
-	      int row = s_row * Arg::nColor + c_row;
+            for (int s_col = 0; s_col < Arg::nSpin; s_col++) { //Spin column
+              const int spin_col = s_col * Arg::nColor;
 #pragma unroll
-	      for(int s_col = 0; s_col < Arg::nSpin; s_col++) { //Spin column
+              for (int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) { //Color column
+                const int c = c_col + color_offset;
+                const int col = spin_col + c;
+                const auto in = halo.Ghost(d, 1, their_spinor_parity, halo_idx, s_col, c);
 #pragma unroll
-		for(int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) { //Color column
-		  int col = s_col * Arg::nColor + c_col + color_offset;
-		  if (!Arg::dagger)
-                    out[color_local] = cmac(arg.Y(d+4, parity, x_cb, row, col),
-                                            arg.halo.Ghost(d, 1, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col, c_col+color_offset), out[color_local]);
-		  else
-		    out[color_local] = cmac(arg.Y(d, parity, x_cb, row, col),
-                                            arg.halo.Ghost(d, 1, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col, c_col+color_offset), out[color_local]);
+                for (int color_local = 0; color_local < Mc; color_local++) { //Color row
+                  const int row = row_base + color_local;
+                  out[color_local] = cmac(Y(gauge_dir, parity, x_cb, row, col), in, out[color_local]);
                 }
-	      }
-	    }
-	  }
-	} else if constexpr (doBulk<Arg::type>()) {
+              }
+            }
+          }
+        } else if constexpr (doBulk<Arg::type>()) {
+          const int fwd_idx = linkIndexHop(coord, arg.dim, d, arg.nFace);
 #pragma unroll
-	  for(int color_local = 0; color_local < Mc; color_local++) { //Color row
-	    int c_row = color_block + color_local; // global color index
-	    int row = s_row * Arg::nColor + c_row;
+          for (int s_col = 0; s_col < Arg::nSpin; s_col++) { //Spin column
+            const int spin_col = s_col * Arg::nColor;
 #pragma unroll
-	    for(int s_col = 0; s_col < Arg::nSpin; s_col++) { //Spin column
+            for (int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) { //Color column
+              const int c = c_col + color_offset;
+              const int col = spin_col + c;
+              const auto in = inA(their_spinor_parity, fwd_idx, s_col, c);
 #pragma unroll
-	      for(int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) { //Color column
-		int col = s_col * Arg::nColor + c_col + color_offset;
-		if (!Arg::dagger)
-		  out[color_local] = cmac(arg.Y(d+4, parity, x_cb, row, col),
-                                          arg.inA[src_idx](their_spinor_parity, fwd_idx, s_col, c_col+color_offset), out[color_local]);
-		else
-		  out[color_local] = cmac(arg.Y(d, parity, x_cb, row, col),
-                                          arg.inA[src_idx](their_spinor_parity, fwd_idx, s_col, c_col+color_offset), out[color_local]);
-	      }
-	    }
-	  }
-	}
+              for (int color_local = 0; color_local < Mc; color_local++) { //Color row
+                const int row = row_base + color_local;
+                out[color_local] = cmac(Y(gauge_dir, parity, x_cb, row, col), in, out[color_local]);
+              }
+            }
+          }
+        }
 
       } // nDim
     }
@@ -203,52 +202,49 @@ namespace quda {
     if (thread_dir || target::is_host()) {
 
       //Backward gather - compute back offset for spinor and gauge fetch
-#pragma unroll
-      for(int d0 = 0; d0 < Arg::nDim; d0 += Arg::dim_stride) {
+      for (int d0 = 0; d0 < Arg::nDim; d0 += Arg::dim_stride) {
         const int d = d0 + thread_dim;
-	const int back_idx = linkIndexHop(coord, arg.dim, d, -arg.nFace);
+        const int gauge_dir = d + (Arg::dagger ? 4 : 0);
 
-	if (arg.commDim[d] && is_boundary(coord, d, 0, arg)) {
-	  if constexpr (doHalo<Arg::type>()) {
+        if (arg.commDim[d] && is_boundary(coord, d, 0, arg)) {
+          if constexpr (doHalo<Arg::type>()) {
             const int ghost_idx = ghostFaceIndex<0>(coord, arg.dim, d, arg.nFace);
+            const int halo_idx = ghost_idx + src_idx * arg.ghostFaceCB[d];
 #pragma unroll
-	    for (int color_local=0; color_local<Mc; color_local++) {
-	      int c_row = color_block + color_local;
-	      int row = s_row * Arg::nColor + c_row;
+            for (int s_col = 0; s_col < Arg::nSpin; s_col++) {
+              const int spin_col = s_col * Arg::nColor;
 #pragma unroll
-	      for (int s_col=0; s_col < Arg::nSpin; s_col++)
+              for (int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) {
+                const int c = c_col + color_offset;
+                const int col = spin_col + c;
+                const auto in = halo.Ghost(d, 0, their_spinor_parity, halo_idx, s_col, c);
 #pragma unroll
-		for (int c_col=0; c_col < Arg::nColor; c_col += Arg::color_stride) {
-		  int col = s_col * Arg::nColor + c_col + color_offset;
-		  if (!Arg::dagger)
-		    out[color_local] = cmac(conj(arg.Y.Ghost(d, 1-parity, ghost_idx, col, row)),
-                                            arg.halo.Ghost(d, 0, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col, c_col+color_offset), out[color_local]);
-		  else
-		    out[color_local] = cmac(conj(arg.Y.Ghost(d+4, 1-parity, ghost_idx, col, row)),
-                                            arg.halo.Ghost(d, 0, their_spinor_parity, ghost_idx + src_idx * arg.ghostFaceCB[d], s_col, c_col+color_offset), out[color_local]);
-		}
-	    }
-	  }
-	} else if constexpr (doBulk<Arg::type>()) {
-          const int gauge_idx = back_idx;
+                for (int color_local = 0; color_local < Mc; color_local++) {
+                  const int row = row_base + color_local;
+                  out[color_local]
+                    = cmac(conj(Y.Ghost(gauge_dir, 1 - parity, ghost_idx, col, row)), in, out[color_local]);
+                }
+              }
+            }
+          }
+        } else if constexpr (doBulk<Arg::type>()) {
+          const int back_idx = linkIndexHop(coord, arg.dim, d, -arg.nFace);
 #pragma unroll
-	  for(int color_local = 0; color_local < Mc; color_local++) {
-	    int c_row = color_block + color_local;
-	    int row = s_row * Arg::nColor + c_row;
+          for (int s_col = 0; s_col < Arg::nSpin; s_col++) {
+            const int spin_col = s_col * Arg::nColor;
 #pragma unroll
-	    for(int s_col = 0; s_col < Arg::nSpin; s_col++)
+            for (int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) {
+              const int c = c_col + color_offset;
+              const int col = spin_col + c;
+              const auto in = inA(their_spinor_parity, back_idx, s_col, c);
 #pragma unroll
-	      for(int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) {
-		int col = s_col * Arg::nColor + c_col + color_offset;
-		if (!Arg::dagger)
-		  out[color_local] = cmac(conj(arg.Y(d, 1-parity, gauge_idx, col, row)),
-                                          arg.inA[src_idx](their_spinor_parity, back_idx, s_col, c_col+color_offset), out[color_local]);
-		else
-		  out[color_local] = cmac(conj(arg.Y(d+4, 1-parity, gauge_idx, col, row)),
-                                          arg.inA[src_idx](their_spinor_parity, back_idx, s_col, c_col+color_offset), out[color_local]);
-	      }
-	  }
-	}
+              for (int color_local = 0; color_local < Mc; color_local++) {
+                const int row = row_base + color_local;
+                out[color_local] = cmac(conj(Y(gauge_dir, 1 - parity, back_idx, col, row)), in, out[color_local]);
+              }
+            }
+          }
+        }
 
       } //nDim
     } // forwards / backwards thread split
@@ -268,25 +264,29 @@ namespace quda {
   __device__ __host__ inline void applyClover(V &out, const Arg &arg, int x_cb, int src_idx, int parity, int s, int color_block, int color_offset)
   {
     const int spinor_parity = (arg.nParity == 2) ? parity : 0;
+    const auto &X = arg.X;
+    const auto &inB = arg.inB[src_idx];
+    const int row_base = s * Arg::nColor + color_block;
 
     // M is number of colors per thread
 #pragma unroll
-    for(int color_local = 0; color_local < Mc; color_local++) {//Color out
-      int c = color_block + color_local; // global color index
-      int row = s * Arg::nColor + c;
+    for (int s_col = 0; s_col < Arg::nSpin; s_col++) //Spin in
 #pragma unroll
-      for (int s_col = 0; s_col < Arg::nSpin; s_col++) //Spin in
+      for (int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) { //Color in
+        //Factor of kappa and diagonal addition now incorporated in X
+        const int c = c_col + color_offset;
+        const int col = s_col * Arg::nColor + c;
+        const auto in = inB(spinor_parity, x_cb, s_col, c);
 #pragma unroll
-	for (int c_col = 0; c_col < Arg::nColor; c_col += Arg::color_stride) { //Color in
-	  //Factor of kappa and diagonal addition now incorporated in X
-	  int col = s_col * Arg::nColor + c_col + color_offset;
-	  if (!Arg::dagger) {
-	    out[color_local] = cmac(arg.X(0, parity, x_cb, row, col), arg.inB[src_idx](spinor_parity, x_cb, s_col, c_col+color_offset), out[color_local]);
-	  } else {
-	    out[color_local] = cmac(conj(arg.X(0, parity, x_cb, col, row)), arg.inB[src_idx](spinor_parity, x_cb, s_col, c_col+color_offset), out[color_local]);
-	  }
-	}
-    }
+        for (int color_local = 0; color_local < Mc; color_local++) { //Color out
+          const int row = row_base + color_local;
+          if constexpr (!Arg::dagger) {
+            out[color_local] = cmac(X(0, parity, x_cb, row, col), in, out[color_local]);
+          } else {
+            out[color_local] = cmac(conj(X(0, parity, x_cb, col, row)), in, out[color_local]);
+          }
+        }
+      }
   }
 
   template <bool is_device> struct dim_collapse {
@@ -347,46 +347,52 @@ namespace quda {
       if (target::is_device() && Arg::color_stride > 1) { // on the device we support warp fission of the inner product
         const int lane_id = target::thread_idx().x % device::warp_size();
         const int warp_id = target::thread_idx().x / device::warp_size();
-        const int vector_site_width = device::warp_size() / Arg::color_stride; // number of sites per warp
+        constexpr int vector_site_width = device::warp_size() / Arg::color_stride; // number of sites per warp
 
-        x_cb = target::block_idx().x * (target::block_dim().x / Arg::color_stride) + warp_id * (device::warp_size() / Arg::color_stride) + lane_id % vector_site_width;
+        x_cb = target::block_idx().x * (target::block_dim().x / Arg::color_stride)
+          + warp_id * vector_site_width + lane_id % vector_site_width;
         color_offset = lane_id / vector_site_width;
       }
 
-      int src_idx = src_parity % arg.n_src;
-      int parity = (arg.nParity == 2) ? (src_parity / arg.n_src) : arg.parity;
+      const int src_idx = src_parity % arg.n_src;
+      const int parity = (arg.nParity == 2) ? (src_parity / arg.n_src) : arg.parity;
 
       // z thread dimension is (( s*(Nc/Mc) + color_block )*dim_thread_split + dim)*2 + dir
       constexpr int Mc = CoarseDslashParams<Arg>::Mc;
-      int dir = sMd & 1;
-      int sMdim = sMd >> 1;
-      int dim = sMdim % Arg::dim_stride;
-      int sM = sMdim / Arg::dim_stride;
-      int s = sM / (Arg::nColor/Mc);
-      int color_block = (sM % (Arg::nColor/Mc)) * Mc;
+      constexpr int n_color_block = Arg::nColor / Mc;
+      const int dir = sMd & 1;
+      const int sMdim = sMd >> 1;
+      const int dim = sMdim % Arg::dim_stride;
+      const int sM = sMdim / Arg::dim_stride;
+      const int s = sM / n_color_block;
+      const int color_block = (sM % n_color_block) * Mc;
 
       typename CoarseDslashParams<Arg>::array_t out {};
 
-      if (Arg::dslash) {
+      if constexpr (Arg::dslash) {
         applyDslash<Mc>(out, dim, dir, x_cb, src_idx, parity, s, color_block, color_offset, arg);
         target::dispatch<dim_collapse>(out, dir, dim, *this);
       }
 
-      if (doBulk<Arg::type>() && Arg::clover && dir==0 && dim==0) applyClover<Mc>(out, arg, x_cb, src_idx, parity, s, color_block, color_offset);
+      if constexpr (doBulk<Arg::type>() && Arg::clover) {
+        if (dir == 0 && dim == 0) applyClover<Mc>(out, arg, x_cb, src_idx, parity, s, color_block, color_offset);
+      }
 
-      if (dir==0 && dim==0) {
+      if (dir == 0 && dim == 0) {
         const int my_spinor_parity = (arg.nParity == 2) ? parity : 0;
 
         // reduce down to the first group of column-split threads
         out = warp_combine<Arg::color_stride>(out);
 
+        if (color_offset == 0) {
 #pragma unroll
-        for (int color_local=0; color_local<Mc; color_local++) {
-          int c = color_block + color_local; // global color index
-          if (color_offset == 0) {
+          for (int color_local = 0; color_local < Mc; color_local++) {
+            const int c = color_block + color_local; // global color index
             // if not halo we just store, else we accumulate
-            if (doBulk<Arg::type>()) arg.out[src_idx](my_spinor_parity, x_cb, s, c) = out[color_local];
-            else arg.out[src_idx](my_spinor_parity, x_cb, s, c) += out[color_local];
+            if constexpr (doBulk<Arg::type>())
+              arg.out[src_idx](my_spinor_parity, x_cb, s, c) = out[color_local];
+            else
+              arg.out[src_idx](my_spinor_parity, x_cb, s, c) += out[color_local];
           }
         }
       }
